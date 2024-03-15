@@ -1,0 +1,55 @@
+name: Build
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install dependencies
+      run: sudo apt-get install -y build-essential cmake unzip pkg-config
+    - name: Download OpenCV
+      run: wget -O opencv.zip https://github.com/opencv/opencv/archive/4.8.1.zip && unzip opencv.zip
+    - name: Build OpenCV
+      run: |
+        cd opencv-4.8.1
+        mkdir -p build && cd build
+        cmake -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX=/usr/local -D BUILD_TESTS=OFF -D INSTALL_PYTHON_EXAMPLES=OFF -D BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF ..
+        make -j4
+        make install
+        
+    - name: build tengine-lite-yolov5s-tt100k
+      run: |
+        git clone https://github.com/Truoji/tengine-lite-yolov5s-tt100k
+        cd tengine-lite-yolov5s-tt100k
+        sed -i 's/SHARED/STATIC/g' CMakeLists.txt
+        sed -i 's/libtengine-lite.so/libtengine-lite-static.a/g' CMakeLists.txt
+        sed -i '/find_package(OpenCV REQUIRED)/a find_package(OpenMP REQUIRED)' CMakeLists.txt
+        sed -i '/set(CMAKE_CXX_STANDARD 11)  /a set(OpenCV_DIR "/usr/local/lib/cmake/opencv4")' CMakeLists.txt
+        sed -i '/find_package(OpenMP REQUIRED)/a set(CMAKE_EXE_LINKER_FLAGS "-static")' CMakeLists.txt
+        sed -i 's/target_link_libraries(yolov5s-tt100k tengine ${OpenCV_LIBS})/target_link_libraries(yolov5s-tt100k tengine OpenMP::OpenMP_CXX ${OpenCV_LIBS})/' CMakeLists.txt
+        mkdir -p build && cd build && rm -f CMakeCache.txt && cmake .. && make
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: build
+        path: tengine-lite-yolov5s-tt100k/build/yolov5s-tt100k
+
+    - name: Upload Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: 0
+        files: |
+          tengine-lite-yolov5s-tt100k/build/yolov5s-tt100k
